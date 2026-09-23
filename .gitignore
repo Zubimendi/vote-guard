@@ -1,0 +1,5 @@
+# Ignore binary / local env
+/bin/
+.env
+*.exe
+server

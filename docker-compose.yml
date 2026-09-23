@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: voteguard
+      POSTGRES_PASSWORD: voteguard
+      POSTGRES_DB: voteguard
+    ports:
+      - "5432:5432"
+    volumes:
+      - voteguard_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voteguard -d voteguard"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  voteguard_pg:

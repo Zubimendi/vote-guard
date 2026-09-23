@@ -1,65 +1,86 @@
 # VoteGuard
 
-A fraud-resistant polling/voting system — the project in this backend
-engineering portfolio built around the question every voting system
-has to answer with total confidence: **can this be gamed, and can the
-displayed result be trusted?**
+A fraud-resistant polling/voting system — single-use identity-bound tokens,
+row-locked vote casting with a database `UNIQUE` backstop, an append-only
+vote log, a live tally cache, and independent reconciliation.
 
-**Status: architecture and documentation only.** This repository is a
-scaffold, not a working codebase yet — see
-[`docs/CURSOR_CONTEXT.md`](docs/CURSOR_CONTEXT.md) for the full build
-spec and what's left to implement. Nothing in `src/`, `migrations/`,
-or `test/` exists beyond an empty placeholder.
+## Stack
 
-## What makes this different from "a poll with a submit button"
+- Go HTTP API (`chi`)
+- PostgreSQL 16 (schema, triggers, and constraints own the hard guarantees)
 
-Double-voting prevention is usually a check-then-act flag with an
-unguarded race in it. VoteGuard fuses the voting credential and the
-anti-replay mechanism into one artifact — a single-use, identity-bound
-token whose redemption and the vote it authorizes happen in one
-transaction, locked and backstopped by a database constraint that
-holds even if the application-layer logic has a bug. The full reasoning,
-including which mechanism is reused from which earlier project in this
-portfolio, is in `docs/ARCHITECTURE.md`.
+## Quick start
 
-## What it's designed to do
+```bash
+# 1. Start Postgres
+docker-compose up -d
 
-- Single-use, identity-bound voting tokens — the eligibility proof
-  and the replay guard, fused.
-- Double-voting prevention proven under real concurrency, not just a
-  single-threaded test: row-level locking plus a database-level
-  `UNIQUE` constraint as an unconditional backstop.
-- An append-only vote log, immutable at the database level — no code
-  path, including a direct SQL edit, can alter a cast vote.
-- A fast, materialized live-tally cache, checked against an
-  independently verified recomputation by a scheduled reconciliation
-  job — the official result always comes from the verified path.
-- Rate limiting on the vote-casting endpoint delegated to GateKeeper
-  rather than reimplemented.
+# 2. Run the API (applies migrations on startup)
+export DATABASE_URL=postgres://voteguard:voteguard@localhost:5432/voteguard?sslmode=disable
+export ADMIN_API_KEY=dev-admin-key-change-me
+go run ./cmd/server
+
+# 3. Import postman.json into Postman and run:
+#    Admin → Create Poll → Issue Tokens → Vote → Cast Vote → Results
+```
+
+Default listen address: `http://localhost:8080`.
+
+### Environment
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | local docker-compose DSN | Postgres connection |
+| `ADMIN_API_KEY` | `dev-admin-key-change-me` | Value for `X-Admin-Key` on admin routes |
+| `PORT` | `8080` | HTTP port |
+| `RECONCILE_INTERVAL` | `30s` | Background reconciliation ticker |
+| `MIGRATIONS_DIR` | `migrations` | SQL migration directory |
+
+Copy `.env.example` for a starting point.
+
+## API surface
+
+Admin routes require header `X-Admin-Key: <ADMIN_API_KEY>`.
+
+| Method | Path | Auth |
+|---|---|---|
+| `POST` | `/v1/polls` | admin |
+| `POST` | `/v1/polls/:id/tokens` | admin |
+| `POST` | `/v1/polls/:id/close` | admin |
+| `POST` | `/v1/polls/:id/reconcile` | admin (MVP: run reconcile now) |
+| `GET` | `/v1/polls/:id/reconciliation` | admin |
+| `POST` | `/v1/polls/:id/vote` | none (token in body) |
+| `GET` | `/v1/polls/:id/results/live` | none (`official: false`) |
+| `GET` | `/v1/polls/:id/results/verified` | none (`official: true` when poll is `CLOSED`) |
+
+Raw voting tokens are returned **once** from token issuance; only SHA-256
+hashes are stored.
+
+## Tests
+
+```bash
+docker-compose up -d
+go test ./internal/...
+DATABASE_URL=postgres://voteguard:voteguard@localhost:5432/voteguard?sslmode=disable go test ./test/ -count=1
+```
+
+Integration tests cover single-use tokens, concurrent double-cast (exactly
+one vote), immutability trigger, forged tokens, cache/verified agreement,
+and reconciliation drift detection.
+
+## Rate limiting (GateKeeper)
+
+VoteGuard does **not** implement request-rate throttling. Deploy the
+vote-casting endpoint behind [GateKeeper](../gatekeeper) (or an equivalent
+rate limiter) for per-token / per-IP protection. See
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §6.
 
 ## Documentation
 
-- [`docs/PRD.md`](docs/PRD.md) — the problem, users, and scope.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — every design
-  decision mapped to the principle it demonstrates, and to the earlier
-  project in this portfolio each mechanism is reused from.
-- [`docs/TESTING.md`](docs/TESTING.md) — the test plan: what has to
-  hold before this project is considered done, written before any code.
-- [`docs/STORY.md`](docs/STORY.md) — narrative for LinkedIn/Medium and
-  interview talking points.
-- [`docs/CURSOR_CONTEXT.md`](docs/CURSOR_CONTEXT.md) — the full build
-  spec: schema, endpoints, implementation order, and the one open
-  decision (implementation stack) that needs to be made before code
-  gets written.
-
-## Repo layout
-
-```
-docs/           PRD, ARCHITECTURE, TESTING, STORY, CURSOR_CONTEXT
-migrations/     empty — 0001_init.sql to be written per CURSOR_CONTEXT.md
-src/            empty — implementation, stack TBD
-test/           empty — unit + integration tests per TESTING.md
-```
+- [`docs/PRD.md`](docs/PRD.md)
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- [`docs/TESTING.md`](docs/TESTING.md)
+- [`postman.json`](postman.json) — import into Postman
 
 ## License
 

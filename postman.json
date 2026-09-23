@@ -1,0 +1,233 @@
+{
+  "info": {
+    "_postman_id": "voteguard-mvp-001",
+    "name": "VoteGuard MVP",
+    "description": "Fraud-resistant polling API. Set collection variables adminKey (default matches .env.example) and baseUrl, then run Admin → Vote → Results in order.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "adminKey", "value": "dev-admin-key-change-me" },
+    { "key": "pollId", "value": "" },
+    { "key": "optionId", "value": "" },
+    { "key": "optionIdB", "value": "" },
+    { "key": "rawToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Healthz",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/healthz"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Create Poll",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', function () { pm.response.to.have.status(201); });",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('pollId', body.id);",
+                  "pm.collectionVariables.set('optionId', body.options[0].id);",
+                  "if (body.options.length > 1) {",
+                  "  pm.collectionVariables.set('optionIdB', body.options[1].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Admin-Key", "value": "{{adminKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Team lunch\",\n  \"description\": \"Where should we eat?\",\n  \"status\": \"OPEN\",\n  \"options\": [\n    { \"label\": \"Pizza\", \"display_order\": 1 },\n    { \"label\": \"Sushi\", \"display_order\": 2 }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/v1/polls"
+          }
+        },
+        {
+          "name": "Issue Tokens",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', function () { pm.response.to.have.status(201); });",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('rawToken', body.tokens[0].token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Admin-Key", "value": "{{adminKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identity_refs\": [\"alice@example.com\", \"bob@example.com\"]\n}"
+            },
+            "url": "{{baseUrl}}/v1/polls/{{pollId}}/tokens"
+          }
+        },
+        {
+          "name": "Close Poll",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-Admin-Key", "value": "{{adminKey}}" }
+            ],
+            "url": "{{baseUrl}}/v1/polls/{{pollId}}/close"
+          }
+        },
+        {
+          "name": "Trigger Reconcile",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-Admin-Key", "value": "{{adminKey}}" }
+            ],
+            "url": "{{baseUrl}}/v1/polls/{{pollId}}/reconcile"
+          }
+        },
+        {
+          "name": "Get Reconciliation History",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Admin-Key", "value": "{{adminKey}}" }
+            ],
+            "url": "{{baseUrl}}/v1/polls/{{pollId}}/reconciliation"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Vote",
+      "item": [
+        {
+          "name": "Cast Vote",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', function () { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{rawToken}}\",\n  \"option_id\": \"{{optionId}}\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/polls/{{pollId}}/vote"
+          }
+        },
+        {
+          "name": "Cast Vote Again (expect already_used)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', function () { pm.response.to.have.status(409); });",
+                  "pm.test('already_used', function () {",
+                  "  pm.expect(pm.response.json().error).to.eql('already_used');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{rawToken}}\",\n  \"option_id\": \"{{optionId}}\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/polls/{{pollId}}/vote"
+          }
+        },
+        {
+          "name": "Cast Vote Forged Token (expect invalid_token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', function () { pm.response.to.have.status(401); });",
+                  "pm.test('invalid_token', function () {",
+                  "  pm.expect(pm.response.json().error).to.eql('invalid_token');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"definitely-not-issued\",\n  \"option_id\": \"{{optionId}}\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/polls/{{pollId}}/vote"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Results",
+      "item": [
+        {
+          "name": "Live Results",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/v1/polls/{{pollId}}/results/live"
+          }
+        },
+        {
+          "name": "Verified Results",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/v1/polls/{{pollId}}/results/verified"
+          }
+        }
+      ]
+    }
+  ]
+}
